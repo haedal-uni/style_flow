@@ -171,7 +171,17 @@ v1.9  V2-S + CutMix + SWA + TTA     →  91%   ← 최종 (90% 돌파)
 ### 설치
 
 ```bash
-pip install -r requirements.txt
+# uv 설치 (처음 한 번만)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source $HOME/.local/bin/env
+
+# 패키지 설치 (CUDA 12.1)
+uv add numpy matplotlib pillow scikit-learn torch torchvision \
+    --index https://download.pytorch.org/whl/cu121
+
+# 패키지 설치 (CPU 환경)
+uv add numpy matplotlib pillow scikit-learn torch torchvision \
+    --index https://download.pytorch.org/whl/cpu
 ```
 
 <br>
