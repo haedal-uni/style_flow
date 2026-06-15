@@ -1,0 +1,12 @@
+# ───────────────────────────────────────────
+# 환경 설정 (uv 기준, Python 3.11+)
+# ───────────────────────────────────────────
+#
+# uv 설치:
+#   curl -LsSf https://astral.sh/uv/install.sh | sh
+#   source $HOME/.local/bin/env
+#   uv --version
+#
+# 패키지 설치 (CUDA 12.1 GPU 환경):
+#   uv add numpy matplotlib pillow scikit-learn torch torchvision \
+#       --index https://download.pytorch.org/whl/cu121
