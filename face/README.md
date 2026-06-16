@@ -199,6 +199,9 @@ uv run infer.py --image photo.jpg --tta
 uv run infer.py --image photo.jpg --model best
 ```
 
+<img src="https://github.com/user-attachments/assets/2b6d6692-84d1-45f0-88ad-f596f5572b57" width="45%" />
+
+
 <br>
 
 ### 학습 재현
