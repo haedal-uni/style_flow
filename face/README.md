@@ -190,13 +190,13 @@ uv add numpy matplotlib pillow scikit-learn torch torchvision \
 
 ```bash
 # 기본 (swa_model 사용, 권장)
-python infer.py --image photo.jpg
+uv run infer.py --image photo.jpg
 
 # TTA까지 적용하면 정확도 최대
-python infer.py --image photo.jpg --tta
+uv run infer.py --image photo.jpg --tta
 
 # best_model 사용
-python infer.py --image photo.jpg --model best
+uv run infer.py --image photo.jpg --model best
 ```
 
 <br>
