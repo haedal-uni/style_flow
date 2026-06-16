@@ -2,9 +2,9 @@
 infer.py — 이미지 한 장 넣으면 얼굴형 Top-2 알려주는 추론 스크립트
 
 사용법:
-  python infer.py --image photo.jpg              # best_model 사용
-  python infer.py --image photo.jpg --model swa  # swa_model 사용 (권장, 더 정확)
-  python infer.py --image photo.jpg --tta        # TTA 5-view 앙상블 적용
+  uv run infer.py --image photo.jpg              # best_model 사용
+  uv run infer.py --image photo.jpg --tta        # swa_model 사용 (권장, 더 정확)
+  uv run infer.py --image photo.jpg --model best        # TTA 5-view 앙상블 적용
 """
 
 import argparse
@@ -202,9 +202,9 @@ def parse_args():
 
 def main():
     args = parse_args()
-    print(f"\n📷  이미지: {args.image}")
-    print(f"🤖  모델  : {args.model}_model.pth")
-    print(f"🔁  TTA   : {'ON (5-view)' if args.tta else 'OFF'}")
+    print(f"\n 이미지: {args.image}")
+    print(f"모델  : {args.model}_model.pth")
+    print(f"TTA   : {'ON (5-view)' if args.tta else 'OFF'}")
 
     # 모델 + 이미지 로드
     model = load_model(args.model)
