@@ -1,0 +1,10 @@
+# ── 딥러닝 ──────────────────────────────────────────────────────
+# GPU(CUDA 12.1/12.2) 버전 설치:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+# CPU 전용 설치:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+torch>=2.1.0
+torchvision>=0.16.0
+
+# ── 이미지 처리 ──────────────────────────────────────────────────
+Pillow>=10.0.0
