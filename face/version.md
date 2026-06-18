@@ -415,3 +415,104 @@ SWA 모델 + TTA   : 90.90% ← 최종
 <br>
 
 > Oval(달걀형)이 다른 클래스보다 조금 낮다. 달걀형이 heart·oblong·round의 중간쯤 생겨서 어느 클래스와도 겹치기 때문이다.
+
+<br><br>
+
+---
+
+<br><br>
+
+## 남성 전이학습 — EfficientNetV2-S 남성 파인튜닝
+
+여성 SWA 모델(`female/model/swa_model.pth`)을 초기 가중치로 사용해서 남성 얼굴형 데이터를 파인튜닝했다.
+
+여성 모델을 처음부터 다시 학습하지 않고, 이미 얼굴 구조를 배운 여성 가중치에서 출발하는 방식이다.
+
+<br>
+
+### 전이학습 전략
+
+EfficientNetV2-S의 레이어를 두 그룹으로 나눠서 다르게 처리했다.
+
+| 레이어 | 처리 | 이유 |
+|--------|------|------|
+| `features[0~4]` | **동결** | 에지·질감·기본 얼굴 구조 — 성별 공통 |
+| `features[5~7]` + `classifier` | **파인튜닝** | 고수준 윤곽·비율 — 성별 차이 반영 |
+
+하위 레이어는 성별과 무관하게 공통적인 얼굴 특징(윤곽선, 피부 질감)을 담고 있기 때문에 동결해서 기존 지식을 보존했다.
+
+상위 레이어는 "이마가 좁은지 넓은지", "턱이 둥근지 각진지" 같은 고수준 비율을 판단하는데, 남성 얼굴의 특성을 반영하도록 파인튜닝했다.
+
+<br>
+
+### 남성 데이터셋 클래스 매핑
+
+남성 데이터셋 폴더명이 여성 클래스명과 달라서 매핑이 필요하다.
+
+| 남성 폴더명 | 매핑 클래스 |
+|---|---|
+| rectangular | Oblong |
+| ovale | Oval |
+| round | Round |
+| square | Square |
+
+Heart 클래스는 남성 데이터가 없어서 여성 모델 가중치를 그대로 유지했다.
+
+남성 모델에서 Heart가 예측되면 참고치로만 활용한다.
+
+<br>
+
+### 하이퍼파라미터
+
+| 항목 | 값 |
+|------|-----|
+| 백본 | EfficientNetV2-S (384×384) |
+| 배치 크기 | 8 (Gradient Accum × 2 = 실효 16) |
+| 파인튜닝 에폭 | 50 (기본) |
+| SWA 에폭 | 마지막 10 epoch |
+| Backbone LR | 1e-5 |
+| Head LR | 1e-4 |
+| SWA LR | 1e-6 |
+| EarlyStopping patience | 10 |
+| 스케줄러 | CosineAnnealingWarmRestarts (T_0=20) |
+
+<br>
+
+### 배경 제거
+
+rembg AI 모델로 배경만 흰색으로 교체하고 머리카락·얼굴은 보존한다.
+
+rembg가 없는 환경에서는 OpenCV GrabCut으로 폴백한다.
+
+배경 노이즈를 제거하면 얼굴 윤곽 학습에 집중할 수 있어서 남성처럼 데이터가 적은 경우에 효과가 크다.
+
+<br>
+
+### 증강
+
+| 증강 | 설명 |
+|------|------|
+| RandomCrop | 384px로 랜덤 크롭 |
+| RandomHorizontalFlip | 좌우 반전 |
+| RandomRotation | ±10° 회전 |
+| ColorJitter | 밝기·대비·채도·색조 랜덤 변형 |
+| RandomErasing | 이미지 일부 마스킹 (과적합 방지) |
+
+CutMix/Mixup은 여성 학습에만 적용하고 남성 파인튜닝에서는 제외했다.
+
+남성 데이터가 적기 때문에 레이블이 섞이는 증강보다 공간·색상 변형 위주로 구성했다.
+
+<br>
+
+### 산출물
+
+```
+male/
+├── train.py
+├── infer.py
+└── model/
+    ├── best_model.pth        ← 파인튜닝 중 검증 정확도 최고 체크포인트
+    ├── swa_model.pth         ← SWA 최종 모델 (추론 권장)
+    ├── checkpoint_latest.pth ← 이어서 학습할 때 사용
+    └── training_curve.png    ← Loss / Accuracy 학습 곡선
+```

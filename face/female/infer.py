@@ -1,10 +1,10 @@
 """
 infer.py — 이미지 한 장 넣으면 얼굴형 Top-2 알려주는 추론 스크립트
 
-사용법:
-  uv run infer.py --image photo.jpg              # best_model 사용
-  uv run infer.py --image photo.jpg --tta        # swa_model 사용 (권장, 더 정확)
-  uv run infer.py --image photo.jpg --model best        # TTA 5-view 앙상블 적용
+사용법 (face/ 디렉토리에서 실행):
+  uv run female/infer.py                                       # 기본 (image/photo.jpg)
+  uv run female/infer.py --image image/photo.jpg --tta        # TTA 5-view 앙상블 (권장)
+  uv run female/infer.py --image image/photo.jpg --model best # best_model 사용
 """
 
 import argparse
@@ -185,8 +185,8 @@ def parse_args():
         description="얼굴형 분류 추론 스크립트"
     )
     parser.add_argument(
-        "--image", "-i", type=str, required=True,
-        help="추론할 이미지 경로 (예: photo.jpg)"
+        "--image", "-i", type=str, default="image/photo.jpg",
+        help="추론할 이미지 경로 (기본: image/photo.jpg)"
     )
     parser.add_argument(
         "--model", "-m", type=str, default="swa",

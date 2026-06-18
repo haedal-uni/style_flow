@@ -17,15 +17,60 @@ Heart(하트형) / Oblong(긴형) / Oval(달걀형) / Round(둥근형) / Square(
 <br>
 
 ```
-face-shape-classifier/
-├── train_v19.py        ← 최종 학습 코드
-├── infer.py            ← 이미지 넣으면 얼굴형 답해주는 추론 코드
-├── requirements.txt    ← 필요한 패키지 목록
-├── version.md           ← 버전별 train 기록 (상세)
-└── v19/
-    ├── best_model.pth  ← 학습 중 가장 정확도 높았던 모델
-    └── swa_model.pth   ← 최종 사용 모델 (정확도 90.9%)
+face/
+├── female/                   ← 여성 학습 코드 & 모델
+│   ├── train.py              ← 여성 학습 스크립트
+│   ├── infer.py              ← 여성 추론 스크립트
+│   └── model/
+│       ├── swa_model.pth     ← SWA 최종 모델 (추론 권장, 정확도 90.9%)
+│       └── training_curve.png
+│
+├── male/                     ← 남성 전이학습 코드 & 모델
+│   ├── train.py              ← 남성 전이학습 스크립트 (여성 SWA → 남성 파인튜닝)
+│   ├── infer.py              ← 남성 추론 스크립트
+│   └── model/
+│       ├── best_model.pth    ← 학습 후 생성
+│       ├── swa_model.pth     ← 학습 후 생성
+│       └── training_curve.png ← 학습 후 생성
+│
+├── image/                    ← 추론 테스트용 이미지 폴더
+│   └── photo.jpg
+│
+├── pyproject.toml            ← 의존성 (uv, CUDA 12.1)
+├── requirements.txt          ← 패키지 목록 (pip 대안용)
+├── version.md                ← 버전별 train 기록 (상세)
+└── README.md
 ```
+
+<br>
+
+---
+
+<br>
+
+## 📂 데이터셋 구조
+
+<br>
+
+```
+dataset/
+├── training_set/         ← 여성 학습 데이터
+│   ├── Heart/
+│   ├── Oblong/
+│   ├── Oval/
+│   ├── Round/
+│   └── Square/
+├── testing_set/          ← 여성 테스트 데이터
+└── men/
+    ├── training_set/     ← 남성 학습 데이터
+    │   ├── ovale/          → Oval 매핑
+    │   ├── rectangular/    → Oblong 매핑
+    │   ├── round/
+    │   └── square/
+    └── testing_set/      ← 남성 테스트 데이터
+```
+
+> Heart 클래스는 남성 데이터 없음 → 여성 모델 가중치 유지
 
 <br>
 
@@ -142,6 +187,27 @@ SWA 모델 + TTA     : 90.9%  ← 최종
 
 <br>
 
+### 9단계 — 남성 전이학습 (Transfer Learning)
+
+여성 SWA 모델(`female/model/swa_model.pth`)을 초기 가중치로, 남성 얼굴형 데이터를 파인튜닝했다.
+
+**전이학습 전략:**
+
+- `features[0~4]` 동결 → 에지·질감·기본 얼굴 구조 (성별 공통)
+- `features[5~7]` + `classifier` 파인튜닝 → 고수준 윤곽·비율 (성별 차이)
+- 배경 제거(rembg): 배경 노이즈 제거 → 탐지 정확도 향상
+
+**클래스 매핑:**
+
+| 남성 폴더명 | 매핑 클래스 |
+|---|---|
+| rectangular | Oblong |
+| ovale | Oval |
+| round | Round |
+| square | Square |
+
+<br>
+
 ---
 
 <br>
@@ -171,44 +237,81 @@ v1.9  V2-S + CutMix + SWA + TTA     →  91%   ← 최종 (90% 돌파)
 ### 설치
 
 ```bash
-# uv 설치 (처음 한 번만)
-curl -LsSf https://astral.sh/uv/install.sh | sh
-source $HOME/.local/bin/env
-
-# 패키지 설치 (CUDA 12.1)
-uv add numpy matplotlib pillow scikit-learn torch torchvision \
-    --index https://download.pytorch.org/whl/cu121
-
-# 패키지 설치 (CPU 환경)
-uv add numpy matplotlib pillow scikit-learn torch torchvision \
-    --index https://download.pytorch.org/whl/cpu
+# uv 사용 (권장 — CUDA 12.1 저장소 자동 적용)
+cd face
+uv sync
 ```
+
+CPU 환경이라면 `pyproject.toml`의 `[tool.uv.sources]` 블록을 제거한 뒤 실행한다.
 
 <br>
 
-### 이미지 추론
+### 여성 모델 추론
 
 ```bash
-# 기본 (swa_model 사용, 권장)
-uv run infer.py --image photo.jpg
+# 기본 (image/photo.jpg, swa_model 사용)
+uv run female/infer.py
 
 # TTA까지 적용하면 정확도 최대
-uv run infer.py --image photo.jpg --tta
+uv run female/infer.py --image image/photo.jpg --tta
 
 # best_model 사용
-uv run infer.py --image photo.jpg --model best
+uv run female/infer.py --image image/photo.jpg --model best
 ```
 
 <img src="https://github.com/user-attachments/assets/2b6d6692-84d1-45f0-88ad-f596f5572b57" width="45%" />
 
+<br>
+
+### 여성 모델 학습 재현
+
+```bash
+cd face
+uv run female/train.py
+```
+
+| 하이퍼파라미터 | 값 |
+|---|---|
+| 백본 | EfficientNetV2-S (384×384) |
+| 배치 크기 | 8 (Gradient Accum × 4 = 실효 32) |
+| Phase 1 | 10 epoch (backbone 동결) |
+| Phase 2 | EarlyStopping patience=25 |
+| Phase 3 | SWA 20 epoch |
+| 증강 | CutMix + Mixup + RandomPerspective + RandomErasing |
 
 <br>
 
-### 학습 재현
+### 남성 전이학습
+
+여성 `female/model/swa_model.pth`를 초기 가중치로 남성 데이터를 파인튜닝합니다.
 
 ```bash
-cd v19
-uv run train_v19.py
+# 기본 실행 (rembg 배경 제거 포함)
+uv run male/train.py
+
+# 배경 제거 비활성화 (rembg 미설치 환경)
+uv run male/train.py --no-rembg
+
+# 에폭 수 조정
+uv run male/train.py --epochs 80
+
+# 이어서 학습 (checkpoint_latest.pth 필요)
+uv run male/train.py --resume
+```
+
+<br>
+
+### 남성 모델 추론
+
+```bash
+# 기본 (image/photo.jpg, swa_model 사용)
+uv run male/infer.py
+
+# TTA 적용
+uv run male/infer.py --image image/photo.jpg --tta
+
+# best_model 사용
+uv run male/infer.py --image image/photo.jpg --model best
 ```
 
 <br>
@@ -222,13 +325,13 @@ uv run train_v19.py
 | 항목 | 내용 |
 |------|------|
 | 언어 | Python 3.11+ |
-| 패키지 관리 | uv |
 | 딥러닝 | PyTorch, EfficientNetV2-S |
 | 랜드마크 | MediaPipe FaceLandmarker |
 | 머신러닝 | scikit-learn (RandomForest, SVM, StackingClassifier) |
-| 증강 | Mixup, CutMix, TTA, RandomPerspective |
+| 증강 | Mixup, CutMix, TTA, RandomPerspective, RandomErasing |
 | 최적화 | SWA, CosineAnnealingWarmRestarts, AdamW |
-
+| 배경 제거 | rembg (남성 전이학습 시 배경 노이즈 제거) |
+| 전이학습 | 여성 SWA 가중치 → 남성 파인튜닝 (하위 레이어 동결) |
 
 <br>
 
@@ -236,7 +339,7 @@ uv run train_v19.py
 
 <br>
 
-## 📌 클래스별 최종 성능 (v1.9 SWA + TTA)
+## 📌 클래스별 최종 성능 (v1.9 여성 SWA + TTA)
 
 | 얼굴형 | Precision | Recall | F1 |
 |--------|-----------|--------|----|
