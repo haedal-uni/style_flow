@@ -1,0 +1,15 @@
+{
+  "best_acc": 0.7692307692307693,
+  "best_epoch": 11,
+  "train_raw_count": 927,
+  "test_raw_count": 385,
+  "train_used_count": 923,
+  "test_used_count": 366,
+  "excluded_count": 23,
+  "exclude_list": "male/exclude_list.txt",
+  "fresh_scaler": false,
+  "lr": 0.0005,
+  "mixup": 0.1,
+  "epochs": 40,
+  "patience": 8
+}

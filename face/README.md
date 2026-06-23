@@ -4,7 +4,7 @@
 
 Heart(하트형) / Oblong(긴형) / Oval(달걀형) / Round(둥근형) / Square(각진형) 총 5가지를 분류.
 
-첫 정확도 36% → 최종 정확도 **90.9%**
+첫 정확도 36% → 최종 정확도 **90.45%** (여성) / **76.92%** (남성)
 
 <br>
 
@@ -18,21 +18,25 @@ Heart(하트형) / Oblong(긴형) / Oval(달걀형) / Round(둥근형) / Square(
 
 ```
 face/
-├── female/                   ← 여성 학습 코드 & 모델
+├── female/                   ← 여성 학습 코드 & 모델 (v22)
 │   ├── train.py              ← 여성 학습 스크립트
-│   ├── infer.py              ← 여성 추론 스크립트
-│   └── model/
-│       ├── swa_model.pth     ← SWA 최종 모델 (추론 권장, 정확도 90.9%)
-│       └── training_curve.png
+│   ├── swa_model.pth         ← 추론 및 남성 전이학습 출발점 (필수)
+│   ├── geo_scaler.pkl        ← 기하학 특징 스케일러 — 남성 학습이 이 파일을 직접 참조 (필수)
+│   ├── class_geo_medians.pkl ← 클래스별 기하학 중앙값 — 추론 설명문 생성용 (선택)
+│   └── training_curve.png    ← 학습 곡선
 │
-├── male/                     ← 남성 전이학습 코드 & 모델
-│   ├── train.py              ← 남성 전이학습 스크립트 (여성 SWA → 남성 파인튜닝)
-│   ├── infer.py              ← 남성 추론 스크립트
-│   └── model/
-│       ├── best_model.pth    ← 학습 후 생성
-│       ├── swa_model.pth     ← 학습 후 생성
-│       └── training_curve.png ← 학습 후 생성
+├── male/                     ← 남성 전이학습 코드 & 모델 (v22)
+│   ├── train.py              ← 남성 전이학습 스크립트 (HeadOnly + exclude_list)
+│   ├── best_model.pth        ← Best 모델 (76.92%)
+│   ├── confusion_matrix.png  ← 혼동행렬
+│   ├── training_curve.png    ← 학습 곡선
+│   ├── train_summary.json    ← 학습 요약 (하이퍼파라미터, 정확도)
+│   ├── geo_scaler.pkl        ← 기하학 특징 스케일러 (필수)
+│   ├── class_geo_medians.pkl ← 클래스별 기하학 중앙값 — 추론 설명문 생성용 (선택)
+│   └── exclude_list.txt      ← 학습에서 제외한 이미지 목록 (23장)
 │
+├── common.py                 ← 공통 모듈 (모델 구조, 전처리, 학습 함수)
+├── infer.py                  ← 추론 스크립트 (--gender female/male)
 ├── image/                    ← 추론 테스트용 이미지 폴더
 │   └── photo.jpg
 │
@@ -182,20 +186,71 @@ CutMix는 한 이미지 일부를 잘라서 다른 이미지에 붙이는 방식
 ```
 Best 모델 단독     : 89.8%
 Best 모델 + TTA    : 90.3%
-SWA 모델 + TTA     : 90.9%  ← 최종
+SWA 모델 + TTA     : 90.9%
 ```
 
 <br>
 
-### 9단계 — 남성 전이학습 (Transfer Learning)
+### 9단계 — v22 하이브리드 아키텍처: 기하학 + CNN 융합 (90.45%)
 
-여성 SWA 모델(`female/model/swa_model.pth`)을 초기 가중치로, 남성 얼굴형 데이터를 파인튜닝했다.
+v1.9까지는 EfficientNetV2-S CNN만 단독으로 사용했다.
 
-**전이학습 전략:**
+v22에서는 MediaPipe로 추출한 기하학 특징 17개를 CNN과 하나의 네트워크 안에서 융합하는 하이브리드 구조로 바꿨다.
 
-- `features[0~4]` 동결 → 에지·질감·기본 얼굴 구조 (성별 공통)
-- `features[5~7]` + `classifier` 파인튜닝 → 고수준 윤곽·비율 (성별 차이)
-- 배경 제거(rembg): 배경 노이즈 제거 → 탐지 정확도 향상
+**① GeoEncoder** — R1~R4(얼굴 비율), 삼정비율, 하악각, 턱끝각도 등 17개 기하학 수치를 64차원 임베딩으로 변환한 뒤 CNN 임베딩(1280차원)과 이어붙인다. CNN이 못 잡는 "왜 이 얼굴형인지"를 수치로 설명할 수 있게 된다.
+
+**② HeartGate** — Heart형(이마 넓고 턱 좁은 역삼각형)은 머리카락이 이마를 가리면 CNN이 Heart와 Oval을 잘 구분하지 못한다. 기하학 특징(`R2`, `chin_angle`, `face_taper_r`)으로 Heart 신호 강도를 0~1로 추정해서 분류기 입력에 추가한다. 모델이 스스로 "게이트 값이 높으면 기하학 신호를 더 믿는다"는 패턴을 학습한다.
+
+**③ 3단계 앞머리 분류** — 기존에는 `upper_r < 0.15`이면 무조건 제외했다. v22에서는 완전 가림(`upper_r < 0.08`)만 제외하고, 부분 가림은 표본 가중치 0.5로 포함한다. 학습 데이터를 덜 버리면서 신뢰도를 반영한다.
+
+<br>
+
+결과: **90.45%** (여성 Best 모델 기준)
+
+<br>
+
+### 10단계 — 남성 HeadOnly 전이학습 + exclude_list (76.92%)
+
+남성 얼굴형 분류 모델은 v22 여성 모델 가중치를 전이학습하는 방식으로 진행했다.
+
+**기존 방식과의 차이:**
+
+| 항목 | 기존 (features[5-7] 파인튜닝) | v22 HeadOnly |
+|---|---|---|
+| 학습 대상 | `features[5~7]` + `classifier` | `classifier` + `geo_enc` + `heart_gate` |
+| backbone | `features[0~4]` 동결 | 전체 동결 |
+| 결과 | 과적합 경향 | 안정적 수렴 |
+
+HeadOnly 방식이 더 안정적인 이유는 남성 데이터 수가 적어서 backbone까지 파인튜닝하면 과적합이 빠르게 일어나기 때문이다.
+
+<br>
+
+**오분류 분석 + exclude_list:**
+
+HeadOnly 전이학습으로 약 74% 수준에 도달한 뒤, 오분류 이미지를 분석했다.
+
+`Oval↔Oblong`, `Round↔Square` 사이의 혼동이 많았는데, 이는 남성 데이터에서 클래스 경계가 모호한 이미지가 섞여 있기 때문이다.
+
+confidence가 높은 오분류 샘플 중 라벨이 애매한 이미지 23장을 `exclude_list.txt`에 등록해서 제외한 뒤 재학습하니 **76.92%** 까지 올랐다.
+
+<br>
+
+최종 조건:
+
+```
+전이학습 방식 : 여성 v22 모델 기반 HeadOnly
+학습 대상     : classifier + geo_enc + heart_gate (backbone 전체 동결)
+mixup         : 0.1
+learning rate : 0.0005
+exclude 이미지: 23장
+최고 정확도   : 76.92% (Epoch 11)
+
+실행:
+uv run python female/train.py      # 1단계 — 여성 모델 학습
+uv run python male/train.py --no-cache --mixup 0.1 --lr 0.0005
+```
+
+현재 남성 데이터 기준에서는 약 76~77% 수준이 안정적으로 도달 가능한 성능이다. 추가 향상을 위해서는 코드 튜닝보다 `Oval↔Oblong`, `Round↔Square` 경계에 있는 라벨 재정의 등 데이터 품질 개선이 더 효과적이다.
 
 **클래스 매핑:**
 
@@ -223,7 +278,9 @@ v1.2  비율 + 픽셀 PCA 복합           →  69%   ← ML 기반 최고
 v1.3  EfficientNet 임베딩 도입       →  72%
 v1.7  EfficientNet-B4 파인튜닝       →  83%
 v1.8  380px + 2-Phase + Mixup        →  87%
-v1.9  V2-S + CutMix + SWA + TTA     →  91%   ← 최종 (90% 돌파)
+v1.9  V2-S + CutMix + SWA + TTA     →  91%
+v22   기하학+CNN 하이브리드(HeartGate) →  90% (여성 best_model 기준)
+v22m  남성 HeadOnly + exclude_list   →  77% (남성 4클래스)
 ```
 
 <br>
@@ -246,17 +303,17 @@ CPU 환경이라면 `pyproject.toml`의 `[tool.uv.sources]` 블록을 제거한 
 
 <br>
 
-### 여성 모델 추론
+### 추론 (여성 / 남성)
 
 ```bash
-# 기본 (image/photo.jpg, swa_model 사용)
-uv run female/infer.py
+# 여성 (기본값)
+uv run python infer.py image/photo.jpg
 
-# TTA까지 적용하면 정확도 최대
-uv run female/infer.py --image image/photo.jpg --tta
+# 남성
+uv run python infer.py image/photo.jpg --gender male
 
-# best_model 사용
-uv run female/infer.py --image image/photo.jpg --model best
+# JSON 출력 (다른 프로그램 연동 시)
+uv run python infer.py image/photo.jpg --gender male --json
 ```
 
 <img src="https://github.com/user-attachments/assets/2b6d6692-84d1-45f0-88ad-f596f5572b57" width="45%" />
@@ -267,51 +324,47 @@ uv run female/infer.py --image image/photo.jpg --model best
 
 ```bash
 cd face
-uv run female/train.py
+uv run python female/train.py
 ```
 
 | 하이퍼파라미터 | 값 |
 |---|---|
 | 백본 | EfficientNetV2-S (384×384) |
 | 배치 크기 | 8 (Gradient Accum × 4 = 실효 32) |
-| Phase 1 | 10 epoch (backbone 동결) |
-| Phase 2 | EarlyStopping patience=25 |
+| Phase 1 | 10 epoch (head + geo_enc + heart_gate만 학습) |
+| Phase 2 | EarlyStopping patience=15 (backbone 일부 unfreeze) |
 | Phase 3 | SWA 20 epoch |
-| 증강 | CutMix + Mixup + RandomPerspective + RandomErasing |
+| 증강 | CutMix + Mixup |
+| 기하학 특징 | MediaPipe 17개 → GeoEncoder(64차원) |
 
 <br>
 
 ### 남성 전이학습
 
-여성 `female/model/swa_model.pth`를 초기 가중치로 남성 데이터를 파인튜닝합니다.
+`female/swa_model.pth`를 초기 가중치로, `classifier + geo_enc + heart_gate`만 학습합니다(backbone 전체 동결).
 
 ```bash
-# 기본 실행 (rembg 배경 제거 포함)
-uv run male/train.py
+# 1단계 — 여성 모델 학습 (여성 swa_model.pth 필요)
+uv run python female/train.py
 
-# 배경 제거 비활성화 (rembg 미설치 환경)
-uv run male/train.py --no-rembg
+# 2단계 — 남성 HeadOnly 전이학습 (최적 조건)
+uv run python male/train.py --no-cache --mixup 0.1 --lr 0.0005
 
-# 에폭 수 조정
-uv run male/train.py --epochs 80
+# exclude_list 없이 전체 데이터 사용
+uv run python male/train.py --no-cache --no-exclude
 
 # 이어서 학습 (checkpoint_latest.pth 필요)
-uv run male/train.py --resume
+uv run python male/train.py --resume
 ```
 
-<br>
-
-### 남성 모델 추론
+오분류 이미지를 분석해서 `exclude_list.txt`에 추가하면 정확도를 더 높일 수 있다.
 
 ```bash
-# 기본 (image/photo.jpg, swa_model 사용)
-uv run male/infer.py
+# 오분류 이미지 추출 → misclassified/ 폴더 생성
+uv run python male/export_misclassified.py --clear
 
-# TTA 적용
-uv run male/infer.py --image image/photo.jpg --tta
-
-# best_model 사용
-uv run male/infer.py --image image/photo.jpg --model best
+# 이미지 확인 후 exclude_list.txt에 파일명 작성 → 재학습
+uv run python male/train.py --no-cache --mixup 0.1 --lr 0.0005
 ```
 
 <br>
@@ -325,13 +378,15 @@ uv run male/infer.py --image image/photo.jpg --model best
 | 항목 | 내용 |
 |------|------|
 | 언어 | Python 3.11+ |
-| 딥러닝 | PyTorch, EfficientNetV2-S |
-| 랜드마크 | MediaPipe FaceLandmarker |
+| 딥러닝 | PyTorch, EfficientNetV2-S (384×384) |
+| 랜드마크 | MediaPipe FaceLandmarker (17개 기하학 특징) |
+| 하이브리드 구조 | GeoEncoder (기하학 → 64차원) + HeartGate (Heart 신호 게이트) |
 | 머신러닝 | scikit-learn (RandomForest, SVM, StackingClassifier) |
-| 증강 | Mixup, CutMix, TTA, RandomPerspective, RandomErasing |
-| 최적화 | SWA, CosineAnnealingWarmRestarts, AdamW |
-| 배경 제거 | rembg (남성 전이학습 시 배경 노이즈 제거) |
-| 전이학습 | 여성 SWA 가중치 → 남성 파인튜닝 (하위 레이어 동결) |
+| 증강 | Mixup, CutMix |
+| 최적화 | SWA, CosineAnnealingLR, AdamW |
+| 배경 제거 | rembg (AI 세그멘테이션, GrabCut 폴백) |
+| 남성 전이학습 | 여성 v22 가중치 → HeadOnly (backbone 동결, head만 학습) |
+| exclude_list | 오분류 분석 후 라벨 모호 샘플 제외 재학습 |
 
 <br>
 
@@ -339,20 +394,38 @@ uv run male/infer.py --image image/photo.jpg --model best
 
 <br>
 
-## 📌 클래스별 최종 성능 (v1.9 여성 SWA + TTA)
+## 📌 클래스별 최종 성능
 
-| 얼굴형 | Precision | Recall | F1 |
-|--------|-----------|--------|----|
-| Heart (하트형) | 0.933 | 0.905 | 0.919 |
-| Oblong (긴형) | 0.935 | 0.935 | 0.935 |
-| Oval (달걀형) | 0.907 | 0.825 | 0.864 |
-| Round (둥근형) | 0.866 | 0.935 | 0.899 |
-| Square (각진형) | 0.909 | 0.945 | 0.927 |
-| **전체 평균** | **0.910** | **0.909** | **0.909** |
+### 여성 (v22 Best 모델, 90.45%)
+
+| 얼굴형 | Precision | Recall | F1 | Support |
+|--------|-----------|--------|----|---------|
+| Heart (하트형) | 0.9412 | 0.9026 | 0.9215 | 195 |
+| Oblong (긴형) | 0.9529 | 0.9479 | 0.9504 | 192 |
+| Oval (달걀형) | 0.9066 | 0.8462 | 0.8753 | 195 |
+| Round (둥근형) | 0.8186 | 0.9072 | 0.8606 | 194 |
+| Square (각진형) | 0.9096 | 0.9144 | 0.9120 | 187 |
+| **전체 평균** | **0.9058** | **0.9034** | **0.9038** | 963 |
 
 <br>
 
-> Oval(달걀형)이 다른 클래스보다 조금 낮은데, 달걀형이 다른 얼굴형들의 중간쯤 생겨서 경계가 애매하기 때문이다.
+> Oval(달걀형)이 다른 클래스보다 조금 낮다. 달걀형이 heart·oblong·round의 중간쯤 생겨서 경계가 애매하기 때문이다.
+
+<br>
+
+### 남성 (v22 Best 모델, 76.92%)
+
+| 얼굴형 | Precision | Recall | F1 | Support |
+|--------|-----------|--------|----|---------|
+| Oblong (긴형) | 0.6726 | 0.7600 | 0.7136 | 100 |
+| Oval (달걀형) | 0.8265 | 0.7864 | 0.8060 | 103 |
+| Round (둥근형) | 0.8000 | 0.7273 | 0.7619 | 55 |
+| Square (각진형) | 0.8000 | 0.7742 | 0.7869 | 93 |
+| **전체 평균 (weighted)** | **0.7715** | **0.7664** | **0.7677** | 351 |
+
+<br>
+
+> Oblong 정밀도가 낮다. 남성 데이터에서 Oval↔Oblong 경계가 모호한 샘플이 많기 때문이며, 추가 향상을 위해서는 데이터 라벨 재정의가 필요하다.
 
 <br>
 
